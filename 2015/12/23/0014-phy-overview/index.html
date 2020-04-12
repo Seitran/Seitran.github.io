@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"seitran.com","root":"/","scheme":"Mist","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="最近积累了一些linux内核phy驱动相关的知识，打算弄个系列记录下来。系列的一开始总是概述。自己对通信硬件实际上也是一知半解，这种概述性的东西不如直接转载来得实在。搜索了一篇博客，转载过来。原文标题为《以太网芯片MAC和PHY的关系》。同时，由于一些内容过于陈旧和存在明显错误，本人将会使用[注：]的形式对一些原文内容进行更正。 如何实现单片以太网微控制器？诀窍是将微控制器、以太网媒体接入控制器（">
+<meta property="og:type" content="article">
+<meta property="og:title" content="linux内核Phy驱动系列总述">
+<meta property="og:url" content="http://seitran.com/2015/12/23/0014-phy-overview/index.html">
+<meta property="og:site_name" content="Chenny的Blog">
+<meta property="og:description" content="最近积累了一些linux内核phy驱动相关的知识，打算弄个系列记录下来。系列的一开始总是概述。自己对通信硬件实际上也是一知半解，这种概述性的东西不如直接转载来得实在。搜索了一篇博客，转载过来。原文标题为《以太网芯片MAC和PHY的关系》。同时，由于一些内容过于陈旧和存在明显错误，本人将会使用[注：]的形式对一些原文内容进行更正。 如何实现单片以太网微控制器？诀窍是将微控制器、以太网媒体接入控制器（">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="http://seitran.com/images/1.jpg">
+<meta property="og:image" content="http://seitran.com/images/2.jpg">
+<meta property="og:image" content="http://seitran.com/images/3.jpg">
+<meta property="og:image" content="http://seitran.com/images/4.jpg">
+<meta property="article:published_time" content="2015-12-23T15:39:13.000Z">
+<meta property="article:modified_time" content="2016-01-28T14:44:30.000Z">
+<meta property="article:author" content="Chenny Chen">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="以太网">
+<meta property="article:tag" content="源代码">
+<meta property="article:tag" content="PHY芯片">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://seitran.com/images/1.jpg">
+
+<link rel="canonical" href="http://seitran.com/2015/12/23/0014-phy-overview/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>linux内核Phy驱动系列总述 | Chenny的Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chenny的Blog</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">All the SECRETS are behind the SOURCE CODE</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+        <li class="menu-item menu-item-categories">
+
+    <a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>分类</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2015/12/23/0014-phy-overview/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chenny Chen">
+      <meta itemprop="description" content="码农的午后抒怀">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chenny的Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          linux内核Phy驱动系列总述
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2015-12-23 23:39:13" itemprop="dateCreated datePublished" datetime="2015-12-23T23:39:13+08:00">2015-12-23</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2016-01-28 22:44:30" itemprop="dateModified" datetime="2016-01-28T22:44:30+08:00">2016-01-28</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Linux%E7%9A%84PHY%E9%A9%B1%E5%8A%A8%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/" itemprop="url" rel="index"><span itemprop="name">Linux的PHY驱动源码分析</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>最近积累了一些linux内核phy驱动相关的知识，打算弄个系列记录下来。系列的一开始总是概述。自己对通信硬件实际上也是一知半解，这种概述性的东西不如直接转载来得实在。搜索了一篇<a href="http://www。cnblogs。com/jason-lu/articles/3195473。html" target="_blank" rel="noopener">博客</a>，转载过来。原文标题为《以太网芯片MAC和PHY的关系》。同时，由于一些内容过于陈旧和存在明显错误，本人将会使用[注：]的形式对一些原文内容进行更正。</p>
+<h2 id="如何实现单片以太网微控制器？"><a href="#如何实现单片以太网微控制器？" class="headerlink" title="如何实现单片以太网微控制器？"></a>如何实现单片以太网微控制器？</h2><p>诀窍是将微控制器、以太网媒体接入控制器（MAC）和物理接口收发器（PHY）整合进同一芯片，这样能去掉许多外接元器件。这种方案可使MAC和PHY实现很好的匹配，同时还可减小引脚数、缩小芯片面积。单片以太网微控制器还降低了功耗，特别是在采用掉电模式的情况下。</p>
+<a id="more"></a>
+<h2 id="以太网MAC是什么？"><a href="#以太网MAC是什么？" class="headerlink" title="以太网MAC是什么？"></a>以太网MAC是什么？</h2><p>MAC即Media Access Control，即媒体访问控制子层协议。该协议位于OSI七层协议中数据链路层的下半部分，主要负责控制与连接物理层的物理介质。在发送数据的时候，MAC协议可以事先判断是否可以发送数据，如果可以发送将给数据加上一些控制信息，最终将数据以及控制信息以规定的格式发送到物理层;在接收数据的时候，MAC协议首先判断输入的信息并是否发生传输错误，如果没有错误，则去掉控制信息发送至LLC层。该层协议是以太网MAC由IEEE-802.3以太网标准定义。最新的MAC同时支持10Mbps和100Mbps两种速率。[注：实际上，当前10GE、GE都很常见了，2015.12.23]</p>
+<p>以太网数据链路层其实包含MAC（介质访问控制）子层和LLC（逻辑链路控制）子层。一块以太网卡MAC芯片的作用不但要实现MAC子层和LLC子层的功能，还要提供符合规范的PCI[注：也不一定走PCI总线]界面以实现和主机的数据交换。</p>
+<p>MAC从PCI总线收到IP数据包（或者其他网络层协议的数据包）后，将之拆分并重新打包成最大1518Byte，最小64Byte的帧[注：前提是以太网的mtu为1500，现在很多以太网设备都支持jumbo frame]。这个帧里面包括了目标MAC地址、自己的源MAC地址和数据包里面的协议类型（比如IP数据包的类型用80表示[注：IP报文的type域实际上是0x0800]）。最后还有一个DWORD（4Byte）的CRC码[注：也即FCS域，一般在以太网frame的最后]。</p>
+<p>可是目标的MAC地址是哪里来的呢？这牵扯到一个ARP协议（介乎于网络层和数据链路层的一个协议）。第一次传送某个目的IP地址的数据的时候，先会发出一个ARP包，其MAC的目标地址是广播地址，里面说到：”谁是xxx。xxx。xxx。xxx这个IP地址的主人？”因为是广播包，所有这个局域网的主机都收到了这个ARP请求。收到请求的主机将这个IP地址和自己的相比较，如果不相同就不予理会，如果相同就发出ARP响应包。这个IP地址的主机收到这个ARP请求包后回复的ARP响应里说到:”我是这个IP地址的主人”。这个包里面就包括了他的MAC地址。以后的给这个IP地址的帧的目标MAC地址就被确定了。（其它的协议如IPX/SPX也有相应的协议完成这些操作。）</p>
+<p>IP地址和MAC地址之间的关联关系保存在主机系统里面，叫做ARP表，由驱动程序和操作系统完成。在Microsoft的系统里面可以用arp -a的命令查看ARP表。收到数据帧的时候也是一样，做完CRC以后，如果没有CRC校验错误，就把帧头去掉，把数据包拿出来通过标准的借口传递给驱动和上层的协议客栈，最终正确的达到我们的应用程序。</p>
+<p>还有一些控制帧，例如流控帧也需要MAC直接识别并执行相应的行为。</p>
+<p>以太网MAC芯片的一端接计算机PCI总线，另外一端就接到PHY芯片上，它们之间是通过MII接口链接的。</p>
+<h2 id="什么是MII？"><a href="#什么是MII？" class="headerlink" title="什么是MII？"></a>什么是MII？</h2><p>答:MII即媒体独立接口，它是IEEE-802.3定义的以太网行业标准。”媒体独立”表明在不对MAC硬件重新设计或替换的情况下，任何类型的PHY设备都可以正常工作。它包括一个数据接口，以及一个MAC和PHY之间的管理接口。</p>
+<p>数据接口包括分别用于发送器和接收器的两条独立信道。每条信道都有自己的数据，时钟和控制信号。MII数据接口总共需要16个信号，包括TX_ER，TXD&lt;3:0&gt;，TX_EN，TX_CLK， COL，RXD&lt;3:0&gt;，RX_EX，RX_CLK，CRS，RX_DV等。MII以4位半字节方式传送数据双向传输，时钟速率25MHz。其工作速率可达100Mb/s;</p>
+<p>MII管理接口是个双信号接口，一个是时钟信号，另一个是数据信号。通过管理接口，上层能监视和控制PHY。其管理是使用SMI（Serial Management Interface）总线通过读写PHY的寄存器来完成的。PHY里面的部分寄存器是IEEE定义的，这样PHY把自己的目前的状态反映到寄存器里面，MAC通过SMI总线不断的读取PHY的状态寄存器以得知目前PHY的状态，例如连接速度，双工的能力等。当然也可以通过SMI设置PHY的寄存器达到控制的目的，例如流控的打开关闭，自协商模式还是强制模式等。不论是物理连接的MII总线和SMI总线还是PHY的状态寄存器和控制寄存器都是有IEEE的规范的，因此不同公司的MAC和PHY一样可以协调工作。当然为了配合不同公司的PHY的自己特有的一些功能，驱动需要做相应的修改。</p>
+<p>MII支持10Mbps和100Mbps的操作，一个接口由14根线组成，它的支持还是比较灵活的，但是有一个缺点是因为它一个端口用的信号线太多，如果一个8端口的交换机要用到112根线，16端口就要用到224根线，到32端口的话就要用到448根线，一般按照这个接口做交换机，是不太现实的，所以现代的交换机的制作都会用到其它的一些从MII简化出来的标准，比如RMII，SMII，GMII等。</p>
+<p>RMII是简化的MII接口，在数据的收发上它比MII接口少了一倍的信号线，所以它一般要求是50MHz的总线时钟。RMII一般用在多端口的交换机，它不是每个端口安排收，发两个时钟，而是所有的数据端口公用一个时钟用于所有端口的收发，这里就节省了不少的端口数目。RMII的一个端口要求7个数据线，比MII少了一倍，所以交换机能够接入多一倍数据的端口。和MII一样，RMII支持10Mbps和100Mbps的总线接口速度。</p>
+<p>SMII是由思科提出的一种媒体接口，它有比RMII更少的信号线数目，S表示串行的意思。因为它只用一根信号线传送发送数据，一根信号线传输接受数据，所以为了满足100Mbps的总线接口速度的需求，它的时钟频率就达到了125MHz，为什么用125MHz，是因为数据线里面会传送一些控制信息。SMII一个端口仅用4根信号线完成100Mbps的传输，比起RMII差不多又少了一倍的信号线。SMII在工业界的支持力度是很高的。同理，所有端口的数据收发都公用同一个外部的125MHz时钟。</p>
+<p>GMII是千兆网的MII接口，这个也有相应的RGMII接口，表示简化了的GMII接口。</p>
+<h3 id="MII总线"><a href="#MII总线" class="headerlink" title="MII总线"></a>MII总线</h3><p>在IEEE802。3中规定的MII总线是一种用于将不同类型的PHY与相同网络控制器（MAC）相连接的通用总线。网络控制器可以用同样的硬件接口与任何PHY 。</p>
+<h3 id="GMII（Gigabit-MII）"><a href="#GMII（Gigabit-MII）" class="headerlink" title="GMII（Gigabit MII）"></a>GMII（Gigabit MII）</h3><p>GMII采用8位接口数据，工作时钟125MHz，因此传输速率可达1000Mbps。同时兼容MII所规定的10/100 Mbps工作方式。</p>
+<p>GMII接口数据结构符合IEEE以太网标准。该接口定义见IEEE 802.3-2000。</p>
+<h4 id="发送器"><a href="#发送器" class="headerlink" title="发送器:"></a>发送器:</h4><p>GTXCLK——吉比特TX。信号的时钟信号（125MHz）<br>TXCLK——10/100Mbps信号时钟<br>TXD[7..0]——被发送数据<br>TXEN——发送器使能信号<br>TXER——发送器错误（用于破坏一个数据包）<br>注:在千兆速率下，向PHY提供GTXCLK信号，TXD，TXEN，TXER信号与此时钟信号同步。否则，在10/100Mbps速率下，PHY提供TXCLK时钟信号，其它信号与此信号同步。其工作频率为25MHz（100M网络）或2.5MHz（10M网络）。</p>
+<h4 id="接收器"><a href="#接收器" class="headerlink" title="接收器:"></a>接收器:</h4><p>RXCLK——接收时钟信号（从收到的数据中提取，因此与GTXCLK无关联）<br>RXD[7..0]——接收数据<br>RXDV——接收数据有效指示<br>RXER——接收数据出错指示<br>COL——冲突检测（仅用于半双工状态）</p>
+<h4 id="管理配置"><a href="#管理配置" class="headerlink" title="管理配置"></a>管理配置</h4><p>MDC——配置接口时钟<br>MDIO——配置接口I/O<br>管理配置接口控制PHY的特性。该接口有32个寄存器地址，每个地址16位。其中前16个已经在”IEEE 802.3，2000-22.2.4 Management Functions”中规定了用途，其余的则由各器件自己指定。</p>
+<h3 id="RMII（Reduced-Media-Independant-Interface）"><a href="#RMII（Reduced-Media-Independant-Interface）" class="headerlink" title="RMII（Reduced Media Independant Interface）"></a>RMII（Reduced Media Independant Interface）</h3><p>简化媒体独立接口，是标准的以太网接口之一，比MII有更少的I/O传输。</p>
+<p>RMII口是用两根线来传输数据的，MII口是用4根线来传输数据的，GMII是用8根线来传输数据的。MII/RMII只是一种接口，对于10Mbps线速，MII的时钟速率是2.5MHz就可以了，RMII则需要5MHz；对于100Mbps线速，MII需要的时钟速率是25MHz，RMII则是50MHz。</p>
+<p>MII/RMII用于传输以太网包，在MII/RMII接口是4/2bit的，在以太网的PHY里需要做串并转换，编解码等才能在双绞线和光纤上进行传 输，其帧格式遵循IEEE 802.3（10M）/IEEE 802.3u（100M）/IEEE 802.1q（VLAN）。以太网帧的格式为:前导符+开始位+目的mac地址+源mac地址+类型/长度+数据+padding（optional）+32bitCRC<br>如果有vlan，则要在类型/长度后面加上2个字节的vlan tag，其中12bit来表示vlan id，另外4bit表示数据的优先级。[注：vlan中实际上只有3bit是优先级域，共8个优先级]</p>
+<h2 id="以太网PHY是什么？"><a href="#以太网PHY是什么？" class="headerlink" title="以太网PHY是什么？"></a>以太网PHY是什么？</h2><p>答:PHY是物理接口收发器，它实现物理层。IEEE-802。3标准定义了以太网PHY。包括MII/GMII（介质独立接口）子层，PCS（物理编码子层），PMA（物理介质附加）子层，PMD（物理介质相关）子层，MDI子层。它符合IEEE-802。3k中用于10BaseT（第14条）和100BaseTX（第24条和第25条）的规范。</p>
+<img src="/images/1.jpg" class="" width="400" height="600" title="网络层次图">
+
+<p>PHY在发送数据的时候，收到MAC过来的数据（对PHY来说，没有帧的概念，对它来说，都是数据而不管什么地址，数据还是CRC。对于100BaseTX因为使用4B/5B编码，每4bit就增加1bit的检错码），然后把并行数据转化为串行流数据，再按照物理层的编码规则把数据编码，再变为模拟信号把数据送出去。收数据时的流程反之。PHY还有个重要的功能就是实现CSMA/CD的部分功能。它可以检测到网络上是否有数据在传送，如果有数据在传送中就等待，一旦检测到网络空闲，再等待一个随机时间后将送数据出去。如果两个碰巧同时送出了数据，那样必将造成冲突，这时候，冲突检测机构可以检测到冲突，然后各等待一个随机的时间重新发送数据。这个随机时间很有讲究的，并不是一个常数，在不同的时刻计算出来的随机时间都是不同的，而且有多重算法来应付出现概率很低的同两台主机之间的第二次冲突。</p>
+<p>许多网友在接入Internt宽带时，喜欢使用”抢线”强的网卡，就是因为不同的PHY碰撞后计算随机时间的方法设计上不同，使得有些网卡比较”占便宜”。不过，抢线只对广播域的网络而言的，对于交换网络和ADSL这样点到点连接到局端设备的接入方式没什么意义。而且”抢线”也只是相对而言的，不会有质的变化。</p>
+<p>现在交换机的普及使得交换网络的普及，使得冲突域网络少了很多，极大地提高了网络的带宽。但是如果用HUB，或者共享带宽接入Internet的时候还是属于冲突域网络，有冲突碰撞的。交换机和HUB最大的区别就是:一个是构建点到点网络的局域网交换设备，一个是构建冲突域网络的局域网互连设备。</p>
+<p>除此之外PHY还提供了和对端设备连接的重要功能并通过LED灯显示出自己目前的连接的状态和工作状态让我们知道。当我们给网卡接入网线的时候，PHY不断发出的脉冲信号检测到对端有设备，它们通过标准的”语言”交流，互相协商并确定连接速度、双工模式、是否采用流控等。通常情况下，协商的结果是两个设备中能同时支持的最大速度和最好的双工模式。这个技术被称为AutoNegotiation或者NWAY，它们是一个意思——自动协商。</p>
+<p>具体传输过程为，发送数据时，网卡首先侦听介质上是否有载波（载波由电压指示），如果有，则认为其他站点正在传送信息，继续侦听介质。一旦通信介质在一定时间段内（称为帧间缝隙IFG=9.6us）是安静的，即没有被其他站点占用，则开始进行帧数据发送，同时继续侦听通信介质，以检测冲突。在发送数据期间，如果检测到冲突，则立即停止该次发送，并向介质发送一个“阻塞”信号，告知其他站点已经发生冲突，从而丢弃那些可能一直在接收的受到损坏的帧数据，并等待一段随机时间（CSMA/CD确定等待时间的算法是二进制指数退避算法）。在等待一段随机时间后，再进行新的发送。如果重传多次后（大于16次）仍发生冲突，就放弃发送。接收时，网卡浏览介质上传输的每个帧，如果其长度小于64字节，则认为是冲突碎片。如果接收到的帧不是冲突碎片且目的地址是本地地址，则对帧进行完整性校验，如果帧长度大于1518字节（称为超长帧，可能由错误的LAN驱动程序或干扰造成）或未能通过CRC校验，则认为该帧发生了畸变。通过校验的帧被认为是有效的，网卡将它接收下来进行本地处理。</p>
+<h2 id="造成以太网MAC和PHY单片整合难度高的原因是什么？"><a href="#造成以太网MAC和PHY单片整合难度高的原因是什么？" class="headerlink" title="造成以太网MAC和PHY单片整合难度高的原因是什么？"></a>造成以太网MAC和PHY单片整合难度高的原因是什么？</h2><p>答:PHY整合了大量模拟硬件，而MAC是典型的全数字器件。芯片面积及模拟/数字混合架构是为什么先将MAC集成进微控制器而将PHY留在片外的原因。更灵活、密度更高的芯片技术已经可以实现MAC和PHY的单芯片整合。</p>
+<h2 id="网卡上除RJ-45接口外，还需要其它元件吗？"><a href="#网卡上除RJ-45接口外，还需要其它元件吗？" class="headerlink" title="网卡上除RJ-45接口外，还需要其它元件吗？"></a>网卡上除RJ-45接口外，还需要其它元件吗？</h2><p>答:PHY和MAC是网卡的主要组成部分，网卡一般用RJ-45插口，10M网卡的RJ-45插口也只用了1，2，3，6四根针，而100M或1000M网卡的则是八根针都是全的。除此以外，还需要其它元件，因为虽然PHY提供绝大多数模拟支持，但在一个典型实现中，仍需外接6，7只分立元件及一个局域网绝缘模块。绝缘模块一般采用一个1：1的变压器。这些部件的主要功能是为了保护PHY免遭由于电气失误而引起的损坏。</p>
+<p>另外，一颗CMOS制程的芯片工作的时候产生的信号电平总是大于0V的（这取决于芯片的制程和设计需求），但是这样的信号送到100米甚至更长的地方会有很大的直流分量的损失。而且如果外部网线直接和芯片相连的话，电磁感应（打雷）和静电，很容易造成芯片的损坏。再就是设备接地方法不同，电网环境不同会导致双方的0V电平不一致，这样信号从A传到B，由于A设备的0V电平和B点的0V电平不一样，这样会导致很大的电流从电势高的设备流向电势低的设备。</p>
+<p>为了解决以上问题Transformer（隔离变压器）这个器件就应运而生。它把PHY送出来的差分信号用差模耦合的线圈耦合滤波以增强信号，并且通过电磁场的转换耦合到连接网线的另外一端。这样不但使网线和PHY之间没有物理上的连接而换传递了信号，隔断了信号中的直流分量，还可以在不同0V电平的设备中传送数据。</p>
+<p>隔离变压器本身就是设计为耐2KV~3KV的电压的。也起到了防雷感应（我个人认为这里用防雷击不合适）保护的作用。有些朋友的网络设备在雷雨天气时容易被烧坏，大都是PCB设计不合理造成的，而且大都烧毁了设备的接口，很少有芯片被烧毁的，就是隔离变压器起到了保护作用。</p>
+<p>隔离变压器本身是个被动元件，只是把PHY的信号耦合了到网线上，并没有起到功率放大的作用。那么一张网卡信号的传输的最长距离是谁决定的呢？</p>
+<p>一张网卡的传输最大距离和与对端设备连接的兼容性主要是PHY决定的。但是可以将信号送的超过100米的PHY其输出的功率也比较大，更容易产生EMI的问题。这时候就需要合适的Transformer与之配合。作PHY的老大公司Marvell的PHY，常常可以传送180~200米的距离，远远超过IEEE的100米的标准。</p>
+<p>RJ-45的接头实现了网卡和网线的连接。它里面有8个铜片可以和网线中的4对双绞（8根）线对应连接。其中100M的网络中1，2是传送数据的，3，6是接收数据的。1，2之间是一对差分信号，也就是说它们的波形一样，但是相位相差180度，同一时刻的电压幅度互为正负。这样的信号可以传递的更远，抗干扰能力强。同样的，3，6也一样是差分信号。</p>
+<p>网线中的8根线，每两根扭在一起成为一对。我们制作网线的时候，一定要注意要让1，2在其中的一对，3，6在一对。否则长距离情况下使用这根网线的时候会导致无法连接或连接很不稳定。</p>
+<p>现在新的PHY支持AUTO MDI-X功能（也需要Transformer支持）。它可以实现RJ-45接口的1，2上的传送信号线和3，6上的接收信号线的功能自动互相交换。有的PHY甚至支持一对线中的正信号和负信号的功能自动交换。这样我们就不必为了到底连接某个设备需要使用直通网线还是交叉网线而费心了。这项技术已经被广泛的应用在交换机和SOHO路由器上。</p>
+<p>在1000Based-T网络中，其中最普遍的一种传输方式是使用网线中所有的4对双绞线，其中增加了4，5和7，8来共同传送接收数据。由于1000Based-T网络的规范包含了AUTO MDI-X功能，因此不能严格确定它们的传出或接收的关系，要看双方的具体的协商结果。</p>
+<p>一片网卡主要功能的实现就基本上是上面这些器件了。</p>
+<p>其他的，还有一颗EEPROM芯片，通常是一颗93C46。里面记录了网卡芯片的供应商ID，子系统供应商ID，网卡的MAC地址，网卡的一些配置，如SMI总线上PHY的地址，BOOTROM的容量，是否启用BOOTROM引导系统等东西。</p>
+<p>很多网卡上还有BOOTROM这个东西。它是用于无盘工作站引导操作系统的。既然无盘，一些引导用必需用到的程序和协议栈就放到里面了，例如RPL，PXE等。实际上它就是一个标准的PCI ROM。所以才会有一些硬盘写保护卡可以通过烧写网卡的BootRom来实现。其实PCI设备的ROM是可以放到主板BIOS里面的。启动电脑的时候一样可以检测到这个ROM并且正确识别它是什么设备的。AGP在配置上和PCI很多地方一样，所以很多显卡的BIOS也可以放到主板BIOS里面。这就是为什么板载的网卡我们从来没有看到过BOOTROM的原因。</p>
+<p>最后就是电源部分了。大多数网卡现在都使用3.3V或更低的电压。有的是双电压的。因此需要电源转换电路。</p>
+<p>而且网卡为了实现Wake on line功能，必须保证全部的PHY和MAC的极少一部分始终处于有电的状态，这需要把主板上的5V Standby电压转换为PHY工作电压的电路。在主机开机后，PHY的工作电压应该被从5V转出来的电压替代以节省5V Standby的消耗。（许多劣质网卡没有这么做）。</p>
+<p>有Wake on line功能的网卡一般还有一个WOL的接口。那是因为PCI 2.1以前没有PCI设备唤醒主机的功能，所以需要着一根线通过主板上的WOL的接口连到南桥里面以实现WOL的功能。新的主板合网卡一般支持PCI 2.2/2.3，扩展了PME#信号功能，不需要那个接口而通过PCI总线就可以实现唤醒功能。</p>
+<p>我们现在来看两个图：前一副图为MAC和PHY分开的以太网卡，后者则是它们集成在一起的网卡：</p>
+<img src="/images/2.jpg" class="" width="400" height="600" title="MAC和PHY分开的以太网卡">
+<img src="/images/3.jpg" class="" width="400" height="600" title="MAC和PHY集成在一颗芯片的以太网卡">
+
+<p>上图中各部件为:<br>①RJ-45接口<br>②Transformer（隔离变压器）<br>③PHY芯片<br>④MAC芯片<br>⑤EEPROM<br>⑥BOOTROM插槽<br>⑦WOL接头<br>⑧晶振<br>⑨电压转换芯片<br>⑩LED指示灯</p>
+<p>网卡的功能主要有两个:一是将电脑的数据封装为帧，并通过网线（对无线网络来说就是电磁波）将数据发送到网络上去;二是接收网络上其它设备传过来的帧，并将帧重新组合成数据，发送到所在的电脑中。网卡能接收所有在网络上传输的信号，但正常情况下只接受发送到该电脑的帧和广播帧，将其余的帧丢弃。然后，传送到系统CPU做进一步处理。当电脑发送数据时，网卡等待合适的时间将分组插入到数据流中。接收系统通知电脑消息是否完整地到达，如果出现问题，将要求对方重新发送。 </p>
+<h2 id="10BaseT和100BaseTX-PHY实现方式不同的原因何在？"><a href="#10BaseT和100BaseTX-PHY实现方式不同的原因何在？" class="headerlink" title="10BaseT和100BaseTX PHY实现方式不同的原因何在？"></a>10BaseT和100BaseTX PHY实现方式不同的原因何在？</h2><p>答:两种实现的分组描述本质上是一样的，但两者的信令机制完全不同。其目的是组织一种硬件实现容易地处理两种速度。10BaseT采用曼彻斯特编码，100BaseTX采用4B/5B编码。</p>
+<h2 id="什么是曼彻斯特编码？"><a href="#什么是曼彻斯特编码？" class="headerlink" title="什么是曼彻斯特编码？"></a>什么是曼彻斯特编码？</h2><p>答:曼彻斯特编码又称曼彻斯特相位编码，它通过相位变化来实现每个位（下图）。通常，用一个时钟周期中部的上升沿表示“1”，下降沿表示“0”。周期末端的相位变化可忽略不计，但有时又可能需要将这种相位变化计算在内，这取决于前一位的值。</p>
+<img src="/images/4.jpg" class="" width="400" height="600" title="曼彻斯特编码">
+
+<h2 id="什么是4B-5B编码？"><a href="#什么是4B-5B编码？" class="headerlink" title="什么是4B/5B编码？"></a>什么是4B/5B编码？</h2><p>答:4B/5B编码是一种块编码方式。它将一个4位的块编码成一个5位的块。这就使5位块内永远至少包含2个“1”转换，所以在一个5位块内总能进行时钟同步。该方法需要25%的额外开销。</p>
+<h2 id="网卡的MAC和PHY间的关系？"><a href="#网卡的MAC和PHY间的关系？" class="headerlink" title="网卡的MAC和PHY间的关系？"></a>网卡的MAC和PHY间的关系？</h2><p>答:网卡工作在OSI的最后两层，物理层和数据链路层，物理层定义了数据传送与接收所需要的电与光信号、线路状态、时钟基准、数据编码和电路等，并向数据链路层设备提供标准接口。物理层的芯片称之为PHY。数据链路层则提供寻址机构、数据帧的构建、数据差错检查、传送控制、向网络层提供标准的数据接口等功能。以太网卡中数据链路层的芯片称之为MAC控制器。很多网卡的这两个部分是做到一起的。他们之间的关系是pci总线接mac总线，mac接phy，phy接网线（当然也不是直接接上的，还有一个变压装置）。</p>
+<p>PHY和MAC之间是如何传送数据和相互沟通的。通过IEEE定义的标准的MII/GigaMII（Media Independed Interfade，介质独立界面）界面连接MAC和PHY。这个界面是IEEE定义的。MII界面传递了网络的所有数据和数据的控制。Ethernet的接口实质是MAC通过MII总线控制PHY的过程。</p>
+<h2 id="网线上传输的是模拟信号还是数字信号？"><a href="#网线上传输的是模拟信号还是数字信号？" class="headerlink" title="网线上传输的是模拟信号还是数字信号？"></a>网线上传输的是模拟信号还是数字信号？</h2><p>答:是模拟信号。因为它传出和接收是采用的模拟的技术。虽然它传送的信息是数字的（并不是传送的信息是数字的信号就可以叫做数字信号）。</p>
+<p>简单的例子:我们知道电话是模拟信号，但是当我们拨号上网的时候，电话线里传送的是数字信息，但信号本身依旧是模拟的。然而ADSL同样是通过电话线传送的，却是数字信号。这取决于它传出和接受采用的技术。</p>
+<h2 id="若操作系统没有加载网卡驱动，网卡虽然在系统设备树上，但网卡接口创建不了，那网卡实际能不能接收到数据？"><a href="#若操作系统没有加载网卡驱动，网卡虽然在系统设备树上，但网卡接口创建不了，那网卡实际能不能接收到数据？" class="headerlink" title="若操作系统没有加载网卡驱动，网卡虽然在系统设备树上，但网卡接口创建不了，那网卡实际能不能接收到数据？"></a>若操作系统没有加载网卡驱动，网卡虽然在系统设备树上，但网卡接口创建不了，那网卡实际能不能接收到数据？</h2><p>答:[注：原文作者在这里针对Intel的网卡进行了描述，实际上其他网卡的实现可能不实这样的，读者需要对此进行甄别对待]这里面有很多细节， 我根据Intel网卡的Spec大概写了写， 想尽量写的通俗一些，所以没有刻意用Spec里的术语，另外本文虽然讲的是MAC/PHY，但光口卡的（SERDES）也是类似的。 </p>
+<p>PCI设备做reset以后进入D0uninitialized（非初始化的D0状态， 参考PCI电源管理规范），此时网卡的MAC和DMA都不工作，PHY是工作在一个特殊的低电源状态的；</p>
+<p>操作系统创建设备树时，初始化这个设备，PCI命令寄存器的 Memory Access Enable or the I/O Access Enable bit会被enable， 这就是D0active。此时PHY/MAC就使能了；</p>
+<p>PHY被使能应该就可以接收物理链路上的数据了，否则不能收到FLP/NLP，PHY就不能建立物理连接。但这类包一般是流量间歇发送的；</p>
+<p>驱动程序一般要通过寄存器来控制PHY，比如自动协商speed/duplex，查询物理链路的状态Link up/down；</p>
+<p>MAC被使能后，如果没有驱动设置控制寄存器的一个位（CTRL.SLU ）的话，MAC和PHY是不能通讯的，就是说MAC不知道PHY的link已经ready，所以收不到任何数据的。这位设置以后，PHY完成自协商，网卡才会有个Link change的中断，知道物理连接已经Link UP了；</p>
+<p>即使Link已经UP，MAC还需要enable接收器的一个位（RCTL.RXEN），包才可以被接收进来，如果网卡被reset，这位是0，意味着所有的包都会被直接drop掉，不会存入网卡的 FIFO。老网卡在驱动退出前利用这位关掉接收。Intel的最新千兆网卡发送接收队列的动态配置就是依靠这个位的，重新配置的过程一定要关掉流量；</p>
+<p>无论驱动加载与否，发生reset后，网卡EEPOM里的mac地址会写入网卡的MAC地址过滤寄存器，驱动可以去修改这个寄存器，现代网卡通常支持很多MAC地址，也就是说，MAC地址是可以被软件设置的。例如，Intel的千兆网卡就支持16个单播MAC地址，但只有1个是存在EEPROM里的，其它是软件声称和设置的；</p>
+<p>但如果驱动没有加载，网卡已经在设备树上，操作系统完成了步骤1-2的初始化，此时网卡的PHY应该是工作的，但因为没有人设置控制位（CTRL.SLU）来让MAC和PHY建立联系，所以MAC是不收包的。这个控制位在reset时会再设置成0；</p>
+<p>PHY可以被软件设置加电和断电，断电状态除了接收管理命令以外，不会接收数据。另外，PHY还能工作在Smart Power Down模式下，link down就进入省电状态；</p>
+<p>有些多口网卡，多个网口共享一个PHY，所以BIOS里设置disbale了某个网口，也未必会把PHY的电源关掉，反过来，也要小心地关掉PHY的电源；</p>
+<p>要详细了解PHY，最终还是要熟悉IEEE以太网的相关协议。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/%E4%BB%A5%E5%A4%AA%E7%BD%91/" rel="tag"># 以太网</a>
+              <a href="/tags/%E6%BA%90%E4%BB%A3%E7%A0%81/" rel="tag"># 源代码</a>
+              <a href="/tags/PHY%E8%8A%AF%E7%89%87/" rel="tag"># PHY芯片</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2015/12/23/0013-linux-org-accept-net-code/" rel="prev" title="参与的项目被合入linux主线啦～">
+      <i class="fa fa-chevron-left"></i> 参与的项目被合入linux主线啦～
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2016/01/20/0015-2015-summary/" rel="next" title="2015年年度总结">
+      2015年年度总结 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#如何实现单片以太网微控制器？"><span class="nav-number">1.</span> <span class="nav-text">如何实现单片以太网微控制器？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#以太网MAC是什么？"><span class="nav-number">2.</span> <span class="nav-text">以太网MAC是什么？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#什么是MII？"><span class="nav-number">3.</span> <span class="nav-text">什么是MII？</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#MII总线"><span class="nav-number">3.1.</span> <span class="nav-text">MII总线</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#GMII（Gigabit-MII）"><span class="nav-number">3.2.</span> <span class="nav-text">GMII（Gigabit MII）</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#发送器"><span class="nav-number">3.2.1.</span> <span class="nav-text">发送器:</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#接收器"><span class="nav-number">3.2.2.</span> <span class="nav-text">接收器:</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#管理配置"><span class="nav-number">3.2.3.</span> <span class="nav-text">管理配置</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#RMII（Reduced-Media-Independant-Interface）"><span class="nav-number">3.3.</span> <span class="nav-text">RMII（Reduced Media Independant Interface）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#以太网PHY是什么？"><span class="nav-number">4.</span> <span class="nav-text">以太网PHY是什么？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#造成以太网MAC和PHY单片整合难度高的原因是什么？"><span class="nav-number">5.</span> <span class="nav-text">造成以太网MAC和PHY单片整合难度高的原因是什么？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#网卡上除RJ-45接口外，还需要其它元件吗？"><span class="nav-number">6.</span> <span class="nav-text">网卡上除RJ-45接口外，还需要其它元件吗？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#10BaseT和100BaseTX-PHY实现方式不同的原因何在？"><span class="nav-number">7.</span> <span class="nav-text">10BaseT和100BaseTX PHY实现方式不同的原因何在？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#什么是曼彻斯特编码？"><span class="nav-number">8.</span> <span class="nav-text">什么是曼彻斯特编码？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#什么是4B-5B编码？"><span class="nav-number">9.</span> <span class="nav-text">什么是4B&#x2F;5B编码？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#网卡的MAC和PHY间的关系？"><span class="nav-number">10.</span> <span class="nav-text">网卡的MAC和PHY间的关系？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#网线上传输的是模拟信号还是数字信号？"><span class="nav-number">11.</span> <span class="nav-text">网线上传输的是模拟信号还是数字信号？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#若操作系统没有加载网卡驱动，网卡虽然在系统设备树上，但网卡接口创建不了，那网卡实际能不能接收到数据？"><span class="nav-number">12.</span> <span class="nav-text">若操作系统没有加载网卡驱动，网卡虽然在系统设备树上，但网卡接口创建不了，那网卡实际能不能接收到数据？</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chenny Chen</p>
+  <div class="site-description" itemprop="description">码农的午后抒怀</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">29</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+            <a href="/categories/">
+          
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">71</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/Seitran" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;Seitran" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://weibo.com/u/2142966741" title="Weibo → https:&#x2F;&#x2F;weibo.com&#x2F;u&#x2F;2142966741" rel="noopener" target="_blank"><i class="fab fa-weibo fa-fw"></i>Weibo</a>
+      </span>
+  </div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chenny Chen</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://mist.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Mist</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
