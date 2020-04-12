@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"seitran.com","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="工作中，发现dump寄存器的时候,一部分比较出名的网卡，比如intel 82599，会列出比较详细的信息，比如寄存器的名字、偏移以及对应的值。而有另外一些不太“出名”的网卡，仅仅只能打印寄存器的十六进制字节流。 一开始，以为是网卡驱动能够控制的，后来才发现其实并不是这个样子的。驱动对上层只提供统一的ethtool的dump寄存器的接口。而如何显示驱动提供的这些值，则是用户态的ethtool所要做的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ethtool工具dump寄存器显示的问题">
+<meta property="og:url" content="http://seitran.com/2015/07/29/07-ethtool-dump-regs/index.html">
+<meta property="og:site_name" content="Chenny的Blog">
+<meta property="og:description" content="工作中，发现dump寄存器的时候,一部分比较出名的网卡，比如intel 82599，会列出比较详细的信息，比如寄存器的名字、偏移以及对应的值。而有另外一些不太“出名”的网卡，仅仅只能打印寄存器的十六进制字节流。 一开始，以为是网卡驱动能够控制的，后来才发现其实并不是这个样子的。驱动对上层只提供统一的ethtool的dump寄存器的接口。而如何显示驱动提供的这些值，则是用户态的ethtool所要做的">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2015-07-29T12:19:05.000Z">
+<meta property="article:modified_time" content="2016-01-28T14:44:10.000Z">
+<meta property="article:author" content="Chenny Chen">
+<meta property="article:tag" content="网卡">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="ethtool">
+<meta property="article:tag" content="dump寄存器">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="http://seitran.com/2015/07/29/07-ethtool-dump-regs/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>ethtool工具dump寄存器显示的问题 | Chenny的Blog</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Chenny的Blog</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+      <p class="site-subtitle" itemprop="description">All the SECRETS are behind the SOURCE CODE</p>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2015/07/29/07-ethtool-dump-regs/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chenny Chen">
+      <meta itemprop="description" content="码农的午后抒怀">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chenny的Blog">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          ethtool工具dump寄存器显示的问题
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2015-07-29 20:19:05" itemprop="dateCreated datePublished" datetime="2015-07-29T20:19:05+08:00">2015-07-29</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2016-01-28 22:44:10" itemprop="dateModified" datetime="2016-01-28T22:44:10+08:00">2016-01-28</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/%E6%8A%80%E6%9C%AF%E5%88%86%E4%BA%AB/" itemprop="url" rel="index"><span itemprop="name">技术分享</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>工作中，发现dump寄存器的时候,一部分比较出名的网卡，比如intel 82599，会列出比较详细的信息，比如寄存器的名字、偏移以及对应的值。而有另外一些不太“出名”的网卡，仅仅只能打印寄存器的十六进制字节流。</p>
+<p>一开始，以为是网卡驱动能够控制的，后来才发现其实并不是这个样子的。驱动对上层只提供统一的ethtool的dump寄存器的接口。而如何显示驱动提供的这些值，则是用户态的ethtool所要做的事情。<br>查看ethtool－4.0的代码，可以看到在ethtool.c中定义了一个数组，数组中列出了当前ethtool版本所“支持”的网卡。对于这些网卡，ethtool在dump的时候会采用其提供的函数:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="keyword">const</span> <span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">	<span class="keyword">const</span> <span class="keyword">char</span> *name;</span><br><span class="line">	<span class="keyword">int</span> (*func)(struct ethtool_drvinfo *info, struct ethtool_regs *regs);</span><br><span class="line"></span><br><span class="line">&#125; driver_list[] = &#123;</span><br><span class="line">#ifdef ETHTOOL_ENABLE_PRETTY_DUMP</span><br><span class="line">	&#123; <span class="string">"8139cp"</span>, realtek_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"8139too"</span>, realtek_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"r8169"</span>, realtek_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"de2104x"</span>, de2104x_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"e1000"</span>, e1000_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"e1000e"</span>, e1000_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"igb"</span>, igb_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"ixgb"</span>, ixgb_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"ixgbe"</span>, ixgbe_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"ixgbevf"</span>, ixgbevf_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"natsemi"</span>, natsemi_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"e100"</span>, e100_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"amd8111e"</span>, amd8111e_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"pcnet32"</span>, pcnet32_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"fec_8xx"</span>, fec_8xx_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"ibm_emac"</span>, ibm_emac_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"tg3"</span>, tg3_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"skge"</span>, skge_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"sky2"</span>, sky2_dump_regs &#125;,</span><br><span class="line">        &#123; <span class="string">"vioc"</span>, vioc_dump_regs &#125;,</span><br><span class="line">        &#123; <span class="string">"smsc911x"</span>, smsc911x_dump_regs &#125;,</span><br><span class="line">        &#123; <span class="string">"at76c50x-usb"</span>, at76c50x_usb_dump_regs &#125;,</span><br><span class="line">        &#123; <span class="string">"sfc"</span>, sfc_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"st_mac100"</span>, st_mac100_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"st_gmac"</span>, st_gmac_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"et131x"</span>, et131x_dump_regs &#125;,</span><br><span class="line">	&#123; <span class="string">"altera_tse"</span>, altera_tse_dump_regs &#125;,</span><br><span class="line">#endif</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<p>比如，82599网卡久对应了ixgbe_dump_regs这个函数。</p>
+<p>用户在使用ethtool －d ethx时，如果没有指定强制要求16进制打印，那么ethtool会在driver_list中根据驱动名称（驱动名称通过get_drvinfo获取）进行匹配，如果匹配到，则会调用对应的处理函数；否则，就会调用默认的16进制打印函数进行寄存器打印；否则，则直接进行16进制打印。</p>
+<p>通过这一过程可以看到，这部分的设计时，已经充分考虑到数据（data）和其视图（view）的分离：驱动只负责关键数据的获取、维护、设置等。而如何向用户进行呈现，则是用户态程序的事情。这样做有几个好处：<br>1，这样的设计使得模块间的接口单一，模块间的交互不需要考虑各种情形，只需要简单地交换数据即可；<br>2，也使得各个模块的功能简单：数据的管理在底层，上层负责展示，不会使功能混杂在一个模块中；<br>3，这样设计也易于扩展：更改展示的代码，即可以不同的方式展示数据，而不需关心底层的硬件是怎么样子的；反之亦然，硬件的变动也不影响上层的数据展示。</p>
+
+    </div>
+
+    
+    
+    
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E7%BD%91%E5%8D%A1/" rel="tag"># 网卡</a>
+              <a href="/tags/Linux/" rel="tag"># Linux</a>
+              <a href="/tags/ethtool/" rel="tag"># ethtool</a>
+              <a href="/tags/dump%E5%AF%84%E5%AD%98%E5%99%A8/" rel="tag"># dump寄存器</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2015/05/03/06-jvm-max-memory/" rel="prev" title="jvm中使用更多的堆内存">
+      <i class="fa fa-chevron-left"></i> jvm中使用更多的堆内存
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2015/08/17/08-daily-life-in-my-world/" rel="next" title="绘声绘影">
+      绘声绘影 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">Chenny Chen</p>
+  <div class="site-description" itemprop="description">码农的午后抒怀</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">31</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">71</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2020</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Chenny Chen</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+</body>
+</html>
