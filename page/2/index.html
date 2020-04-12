@@ -148,7 +148,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2017/03/21/16-wireshark-bugs-list/">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/04/12/0020-rdma-related/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -162,181 +162,7 @@
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
           
-            <a href="/2017/03/21/16-wireshark-bugs-list/" class="post-title-link" itemprop="url">Wireshark的一些bug记录</a>
-        </h2>
-
-        <div class="post-meta">
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-calendar"></i>
-              </span>
-              <span class="post-meta-item-text">发表于</span>
-
-              <time title="创建时间：2017-03-21 22:30:03" itemprop="dateCreated datePublished" datetime="2017-03-21T22:30:03+08:00">2017-03-21</time>
-            </span>
-              <span class="post-meta-item">
-                <span class="post-meta-item-icon">
-                  <i class="far fa-calendar-check"></i>
-                </span>
-                <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2017-07-24 12:15:14" itemprop="dateModified" datetime="2017-07-24T12:15:14+08:00">2017-07-24</time>
-              </span>
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-folder"></i>
-              </span>
-              <span class="post-meta-item-text">分类于</span>
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/%E7%BB%8F%E9%AA%8C%E5%88%86%E4%BA%AB/" itemprop="url" rel="index"><span itemprop="name">经验分享</span></a>
-                </span>
-            </span>
-
-          
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-
-      
-          <p>最近我在定位一些问题的时候，用到wireshark来查看抓到的报文，里面出现了一些奇奇怪怪的错误解析。不由得感慨，即使是像wireshark这样的开源工具，也有相当一部分代码写得很挫。下面列举了一些我看到的wireshark的bug，曾经的或者现在还存在的。就不区分了。</p>
-<h1 id="解析TCP报文时，NextSeq计算出错。"><a href="#解析TCP报文时，NextSeq计算出错。" class="headerlink" title="解析TCP报文时，NextSeq计算出错。"></a>解析TCP报文时，NextSeq计算出错。</h1><p>TCP协议中，SYN报文和FIN报文都会占用1字节的序列号。wireshark在显示带数据的tcp报文时，会计算出Next sequence number的值。但是这个值在数据带FIN的情况下计算错误，没有包含FIN带的那个序列号。比如说起始sequence为100，数据100Byte，带了一个FIN标志，那么Next sequence number的值应该为100 + 100 + 1，而非100 + 100（虽然FIN后面不会有数据了，但是这个计算方式还是有问题的）。</p>
-<p>接下来，我们在wireshark的源代码中找到它是如何计算。首先，全局搜索显示在wireshark中的“Next sequence number”，我们找到了下面的代码：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">void</span></span><br><span class="line">proto_register_tcp(<span class="keyword">void</span>)</span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">static</span> hf_register_info hf[] = &#123;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* 省略部分代码 */</span></span><br><span class="line">        &#123; &amp;hf_tcp_nxtseq,</span><br><span class="line">        &#123; <span class="string">"Next sequence number"</span>,   <span class="string">"tcp.nxtseq"</span>, FT_UINT32, BASE_DEC, <span class="literal">NULL</span>, <span class="number">0x0</span>,</span><br><span class="line">            <span class="literal">NULL</span>, HFILL &#125;&#125;,</span><br><span class="line"></span><br><span class="line">    &#125;;</span><br><span class="line"><span class="comment">/* 省略部分代码 */</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>我们看到了Next sequence number关联到了hf_tcp_nxtseq，可以认为hf_tcp_nxtseq是一个句柄，索引了一个条目，标识了这个字段的一些相关属性。我们接下来搜索hf_tcp_nxtseq变量，可以看到在两个位置用到了，这两个位置是挨着的：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* 函数dissect_tcp中 */</span></span><br><span class="line">    <span class="keyword">if</span> (tcph-&gt;th_have_seglen) &#123;</span><br><span class="line">        <span class="keyword">if</span> (nxtseq != tcph-&gt;th_seq) &#123;</span><br><span class="line">            <span class="keyword">if</span>(tcp_relative_seq) &#123;</span><br><span class="line">                tf=proto_tree_add_uint_format_value(tcp_tree, hf_tcp_nxtseq, tvb, offset, <span class="number">0</span>, nxtseq, <span class="string">"%u    (relative sequence number)"</span>, nxtseq);</span><br><span class="line">            &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                tf=proto_tree_add_uint(tcp_tree, hf_tcp_nxtseq, tvb, offset, <span class="number">0</span>, nxtseq);</span><br><span class="line">            &#125;</span><br><span class="line">            PROTO_ITEM_SET_GENERATED(tf);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
-<p>可以看到，显示的值来源于变量nxtseq，我们向上看看这个函数，看看在哪里有对这个值进行赋值：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">nxtseq = tcph-&gt;th_seq + tcph-&gt;th_seglen;</span><br><span class="line"><span class="keyword">if</span> ((tcph-&gt;th_flags&amp;(TH_SYN|TH_FIN)) &amp;&amp; (tcph-&gt;th_seglen &gt; <span class="number">0</span>)) &#123;</span><br><span class="line">    nxtseq += <span class="number">1</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>咦，怎么跟我在公司看到的不一样？好吧，可能是新版本已经修复了。当报文中的头打上了TH_SYN或者TH_FIN的时候，序列号会增加1。这样就对了嘛。在公司上还停留在较早一点的版本上，是没有那个if分支的，我的修改方法是：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nxtseq = tcph-&gt;th_seq + tcph-&gt;th_seglen + ((tcph-&gt;th_flags &amp; (TH_SYN | TH_FIN)) != <span class="number">0</span> ? <span class="number">1</span> : <span class="number">0</span>);</span><br></pre></td></tr></table></figure>
-<h1 id="TCP错误判断SPURIOUS重传"><a href="#TCP错误判断SPURIOUS重传" class="headerlink" title="TCP错误判断SPURIOUS重传"></a>TCP错误判断SPURIOUS重传</h1><p>在wireshark解析tcp报文中，有一种类型的重传会被打上Spurious retransmission。如果我们重传的数据（或者FIN、SYN）已经被对方的ack确认了，但是还是发生了这个数据的重传，这个时候就会被wireshark解析判断为spurious重传。</p>
-<p>但是有一个特殊的场景wireshark会错误地判断，这个特殊的场景还是FIN或者SYN的时候。以FIN为例，我们发送FIN的序列号为100，对端最后ack我们的序列号为100；当对端不给我们这个FIN的ack时（ack seq = 101），我们会多次重传FIN，这些FIN的重传其实是正常的，但是wireshark还是会把他们解析为spurious。为什么呢？我们用上面相似的策略来搜索源代码，可以找到下面这段：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> ( seq + seglen &lt;= tcpd-&gt;rev-&gt;tcp_analyze_seq_info-&gt;lastack ) &#123;</span><br><span class="line">    <span class="keyword">if</span>(!tcpd-&gt;ta)&#123;</span><br><span class="line">        tcp_analyze_get_acked_struct(pinfo-&gt;num, seq, ack, TRUE, tcpd);</span><br><span class="line">    &#125;</span><br><span class="line">    tcpd-&gt;ta-&gt;flags|=TCP_A_SPURIOUS_RETRANSMISSION;</span><br><span class="line">    <span class="keyword">goto</span> finished_checking_retransmission_type;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>看到没？对于上面的那个例子来讲，seq = 100，seglen = 0， lastack = 100，这个条件就是满足的，那么就会被认为是spurious重传。这里的判断条件也应该修改为：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> ( seq + seglen + ((tcph-&gt;th_flags &amp; (TH_SYN | TH_FIN)) != <span class="number">0</span> ? <span class="number">1</span> : <span class="number">0</span>) &lt;= tcpd-&gt;rev-&gt;tcp_analyze_seq_info-&gt;lastack )</span><br></pre></td></tr></table></figure>
-
-<h1 id="在tcp序列号翻转的情况下，计算iwarp报文的payload长度错误"><a href="#在tcp序列号翻转的情况下，计算iwarp报文的payload长度错误" class="headerlink" title="在tcp序列号翻转的情况下，计算iwarp报文的payload长度错误"></a>在tcp序列号翻转的情况下，计算iwarp报文的payload长度错误</h1><p>这个错误实际上不应该，我们有一个场景是测试序列号翻转情况下我们的机器能否正常工作，抓包上看到处于序列号翻转位置的报文被打上了错误的标志，同时前后的报文都没有问题，那么肯定是序列号翻转时候的一些计算有问题，经过分析，怀疑长度有问题。依然翻看wireshark的源代码：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> guint32</span><br><span class="line">fpdu_total_length(struct tcpinfo *tcpinfo)</span><br><span class="line">&#123;</span><br><span class="line">	guint32 size = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> (tcpinfo-&gt;seq &lt; tcpinfo-&gt;nxtseq) &#123;</span><br><span class="line">		size = tcpinfo-&gt;nxtseq - tcpinfo-&gt;seq;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> (tcpinfo-&gt;seq &gt;= tcpinfo-&gt;nxtseq) &#123;</span><br><span class="line">		size = tcpinfo-&gt;nxtseq + (TCP_MAX_SEQ - tcpinfo-&gt;seq);</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> size;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>上面这个函数是计算fpdu的整个长度。当起始序列号小于这个报文结束后一字节的序列号时，size = tcpinfo-&gt;nxtseq - tcpinfo-&gt;seq。否则size = tcpinfo-&gt;nxtseq + (TCP_MAX_SEQ - tcpinfo-&gt;seq)。TCP_MAX_SEQ为0xffffffff。<br>前一种情况计算起来是没有问题的，后面一个公式是什么鬼？如果seq = 0xffffffff，报文长1字节，那么nxtseq = 0x0，根据公式计算，size = 0？简直逗比的公式啊。<br>正确的写法不解释了，如下：</p>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> guint32</span><br><span class="line">fpdu_total_length(struct tcpinfo *tcpinfo)</span><br><span class="line">&#123;</span><br><span class="line">	<span class="keyword">return</span> tcpinfo-&gt;nxtseq - tcpinfo-&gt;seq;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-      
-    </div>
-
-    
-    
-    
-      <footer class="post-footer">
-        <div class="post-eof"></div>
-      </footer>
-  </article>
-  
-  
-  
-
-      
-  
-  
-  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/07/13/15-wireshark-bugs-of-iWarp/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="Chenny Chen">
-      <meta itemprop="description" content="码农的午后抒怀">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Chenny的Blog">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          
-            <a href="/2016/07/13/15-wireshark-bugs-of-iWarp/" class="post-title-link" itemprop="url">Wireshark中关于iWarp报文解析的两处bug</a>
-        </h2>
-
-        <div class="post-meta">
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-calendar"></i>
-              </span>
-              <span class="post-meta-item-text">发表于</span>
-
-              <time title="创建时间：2016-07-13 23:37:04" itemprop="dateCreated datePublished" datetime="2016-07-13T23:37:04+08:00">2016-07-13</time>
-            </span>
-              <span class="post-meta-item">
-                <span class="post-meta-item-icon">
-                  <i class="far fa-calendar-check"></i>
-                </span>
-                <span class="post-meta-item-text">更新于</span>
-                <time title="修改时间：2016-07-31 23:01:20" itemprop="dateModified" datetime="2016-07-31T23:01:20+08:00">2016-07-31</time>
-              </span>
-            <span class="post-meta-item">
-              <span class="post-meta-item-icon">
-                <i class="far fa-folder"></i>
-              </span>
-              <span class="post-meta-item-text">分类于</span>
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/%E7%BB%8F%E9%AA%8C%E5%88%86%E4%BA%AB/" itemprop="url" rel="index"><span itemprop="name">经验分享</span></a>
-                </span>
-            </span>
-
-          
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-
-      
-          <p>最近工作很忙，连周三默认不加班日，也需要到9点左右才能回来。搞的这么晚，也是因为测试同事的一个问题单。经过一番折腾，在茫茫几十上百万行的日志中，终于找到了蛛丝马迹，肯定了自己猜测，测试同事的自动脚本不靠谱啊，脚本提示关键词没有出现在log中，自己也就相信了，结果凑巧发现其他问题时，发现居然有………终于可以安心回家了。</p>
-<p>今天其实想写的，是另外一个事情。最近的工作跟网络的RDMA协议相关，具体是iWarp协议。iWarp协议这个东西呢，细节可以参考相关的RFC。跟网络协议打交道，离不开的重要工具就是Wireshark了，用它来分析报文是常有的事。但这个工具对iWarp的支持不是特别的好，同时也会存在一些bug，经常会分析出一些错误的信息误导我们。比如说下面两条：</p>
-<p>（1）iWarp协议中有一个Marker类似的东西，它的作用是用来给报文定界的。iWarp协议中，报文传输以FPDU为单位。TCP协议在网络当中会产生乱序的现象，一般的上层协议处理需要等TCP层完成乱序处理后，才能进行处理相应的协议处理。但iWarp开启了Marker功能之后，就不一般了。Marker实际上是报文当中的4个字节，每隔512Byte都有一个Marker，这个Marker的值等于从该位置到报文头的距离（落在报文间的Marker值为0）。一条流的第一个Marker是这条流进入FPDU模式后的前4字节。</p>
-<p>举一个例子，一个新的iWarp连接（基于TCP），进入FPDU模式后的tcp序列号为100，那么100～103字节就是这条流的第一个Marker，它的值为0。如果接下来第一个iWarp报文为1440B，这个报文的序列号就是从100～1539B，100～103、612～615、1124～1127就是这个报文当中的所有Marker。</p>
-<p>Wireshark在解析报文时候，会计算出这个报文中的Marker数目。在大多数情况下，Wireshark的计算都是没有问题的，但不凑巧。如果一个报文为512的整数倍，同时报文起始就时一个Marker的时候，这个计算就问题大大的了。</p>
-<p>（2）第二个问题还是关于Marker的。Marker是否开启是通信双方协商的，通过MPA协商告诉对方本端是否支持Marker，如果A通告Marker使能，说明A有能力接收Marker，这样B发送的报文中就会携带Marker；同理B也一样。使不使能Marker是会影响报文解析的。Wireshark有一个毛病：如果双方一方使能了Marker，而另外一方没有使能Marker，它就认为双方都使能了Marker，然后进行报文解析。这样的话，没有使能Marker的那一方的报文就全被解析错误了。</p>
-<p>开发iWarp协议相关的项目时，这两个bug还是对开发调试有所影响的，改起来也比较方便。其实在公司里面已经都把代码给改了，重新发布给同事了来用，只是信息安全的问题，不可能把代码拿出来。有空的时候，自己在家再开发一下，最好是把bug反馈给wireshark的maintainer，也算贡献一把社区。：）</p>
-
-      
-    </div>
-
-    
-    
-    
-      <footer class="post-footer">
-        <div class="post-eof"></div>
-      </footer>
-  </article>
-  
-  
-  
-
-      
-  
-  
-  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/04/12/14-rdma-related/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="Chenny Chen">
-      <meta itemprop="description" content="码农的午后抒怀">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Chenny的Blog">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          
-            <a href="/2016/04/12/14-rdma-related/" class="post-title-link" itemprop="url">14-rdma-related</a>
+            <a href="/2016/04/12/0020-rdma-related/" class="post-title-link" itemprop="url">14-rdma-related</a>
         </h2>
 
         <div class="post-meta">
@@ -380,7 +206,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/04/12/13-thinking-about-future/">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/04/12/0019-thinking-about-future/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -394,7 +220,7 @@
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
           
-            <a href="/2016/04/12/13-thinking-about-future/" class="post-title-link" itemprop="url">关于未来的一点思考</a>
+            <a href="/2016/04/12/0019-thinking-about-future/" class="post-title-link" itemprop="url">关于未来的一点思考</a>
         </h2>
 
         <div class="post-meta">
@@ -457,7 +283,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/27/11-add-serial-loggin-and-print-in-vmware-linux/">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/27/0017-add-serial-loggin-and-print-in-vmware-linux/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -471,7 +297,7 @@
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
           
-            <a href="/2016/01/27/11-add-serial-loggin-and-print-in-vmware-linux/" class="post-title-link" itemprop="url">VMware下实现Linux串口登陆和串口重定向</a>
+            <a href="/2016/01/27/0017-add-serial-loggin-and-print-in-vmware-linux/" class="post-title-link" itemprop="url">VMware下实现Linux串口登陆和串口重定向</a>
         </h2>
 
         <div class="post-meta">
@@ -514,7 +340,7 @@
           <p>在公司的话会经常接触到丰富的物料，对于Linux内核调试相关问题，很多时候环境都不是问题（比如我有丰富的单板、服务器、串口等资源可以把信息从kernel中导出呈现到我们面前）。而一旦在自己家里的电脑上的话，就会被各种环境问题给困扰。VMware是经常用的一个虚拟机环境，我们利用VMware进行内核相关开发时，一旦发生了oops等内核异常，而苦于抓不到有用的调试信息（内核的打印来不及打印到控制台就挂死重启了）。今天，就给大家介绍VMware下如何实现串口登录和串口打印的功能，以方便调试使用。</p>
           <!--noindex-->
             <div class="post-button">
-              <a class="btn" href="/2016/01/27/11-add-serial-loggin-and-print-in-vmware-linux/#more" rel="contents">
+              <a class="btn" href="/2016/01/27/0017-add-serial-loggin-and-print-in-vmware-linux/#more" rel="contents">
                 阅读全文 &raquo;
               </a>
             </div>
@@ -538,7 +364,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/27/12-a-kernel-phy-bug/">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/27/0018-a-kernel-phy-bug/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -552,7 +378,7 @@
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
           
-            <a href="/2016/01/27/12-a-kernel-phy-bug/" class="post-title-link" itemprop="url">内核phy驱动实际使用中的一个bug描述</a>
+            <a href="/2016/01/27/0018-a-kernel-phy-bug/" class="post-title-link" itemprop="url">内核phy驱动实际使用中的一个bug描述</a>
         </h2>
 
         <div class="post-meta">
@@ -611,7 +437,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/24/10-median-of-two-sorted-arrays/">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/24/0009-median-of-two-sorted-arrays/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -625,7 +451,7 @@
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
           
-            <a href="/2016/01/24/10-median-of-two-sorted-arrays/" class="post-title-link" itemprop="url">求两个有序数组的中位数算法解析</a>
+            <a href="/2016/01/24/0009-median-of-two-sorted-arrays/" class="post-title-link" itemprop="url">求两个有序数组的中位数算法解析</a>
         </h2>
 
         <div class="post-meta">
@@ -701,7 +527,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/21/0f-Bloom-filter/">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/21/0016-Bloom-filter/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -715,7 +541,7 @@
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
           
-            <a href="/2016/01/21/0f-Bloom-filter/" class="post-title-link" itemprop="url">Bloom filter小结</a>
+            <a href="/2016/01/21/0016-Bloom-filter/" class="post-title-link" itemprop="url">Bloom filter小结</a>
         </h2>
 
         <div class="post-meta">
@@ -775,7 +601,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/20/0e-2015-summary/">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2016/01/20/0015-2015-summary/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -789,7 +615,7 @@
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
           
-            <a href="/2016/01/20/0e-2015-summary/" class="post-title-link" itemprop="url">2015年年度总结</a>
+            <a href="/2016/01/20/0015-2015-summary/" class="post-title-link" itemprop="url">2015年年度总结</a>
         </h2>
 
         <div class="post-meta">
@@ -847,7 +673,7 @@
   
   
   <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://seitran.com/2015/12/23/0d-phy-overview/">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2015/12/23/0014-phy-overview/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -861,7 +687,7 @@
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
           
-            <a href="/2015/12/23/0d-phy-overview/" class="post-title-link" itemprop="url">linux内核Phy驱动系列总述</a>
+            <a href="/2015/12/23/0014-phy-overview/" class="post-title-link" itemprop="url">linux内核Phy驱动系列总述</a>
         </h2>
 
         <div class="post-meta">
@@ -905,7 +731,7 @@
 <h2 id="如何实现单片以太网微控制器？"><a href="#如何实现单片以太网微控制器？" class="headerlink" title="如何实现单片以太网微控制器？"></a>如何实现单片以太网微控制器？</h2><p>诀窍是将微控制器、以太网媒体接入控制器（MAC）和物理接口收发器（PHY）整合进同一芯片，这样能去掉许多外接元器件。这种方案可使MAC和PHY实现很好的匹配，同时还可减小引脚数、缩小芯片面积。单片以太网微控制器还降低了功耗，特别是在采用掉电模式的情况下。</p>
           <!--noindex-->
             <div class="post-button">
-              <a class="btn" href="/2015/12/23/0d-phy-overview/#more" rel="contents">
+              <a class="btn" href="/2015/12/23/0014-phy-overview/#more" rel="contents">
                 阅读全文 &raquo;
               </a>
             </div>
@@ -925,10 +751,164 @@
   
   
 
+      
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2015/12/23/0013-linux-org-accept-net-code/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chenny Chen">
+      <meta itemprop="description" content="码农的午后抒怀">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chenny的Blog">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          
+            <a href="/2015/12/23/0013-linux-org-accept-net-code/" class="post-title-link" itemprop="url">参与的项目被合入linux主线啦～</a>
+        </h2>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2015-12-23 22:41:36" itemprop="dateCreated datePublished" datetime="2015-12-23T22:41:36+08:00">2015-12-23</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2016-01-28 22:44:22" itemprop="dateModified" datetime="2016-01-28T22:44:22+08:00">2016-01-28</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/%E6%8A%80%E6%9C%AF%E5%88%86%E4%BA%AB/" itemprop="url" rel="index"><span itemprop="name">技术分享</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+          <p>一直没想到，自己写的一些代码能够上到开源社区，而且还是linux的主线。前几个月在深圳出差的时候，参与了一个公司的一个开源项目，虽然其中只有一部分代码是我写的，但如今看到这个项目被合入linux 4.2 rc4中，更是分外高兴。<br>linux的git库：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">git@github.com:torvalds/linux.git</span><br></pre></td></tr></table></figure>
+<p>代码所在目录：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">drivers/net/ethernet/hisilicon/hns/</span><br></pre></td></tr></table></figure>
+
+<p>聊以纪念。</p>
+
+      
+    </div>
+
+    
+    
+    
+      <footer class="post-footer">
+        <div class="post-eof"></div>
+      </footer>
+  </article>
+  
+  
+  
+
+      
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://seitran.com/2015/12/09/0012-1000m-copper-autoneg/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="Chenny Chen">
+      <meta itemprop="description" content="码农的午后抒怀">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Chenny的Blog">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          
+            <a href="/2015/12/09/0012-1000m-copper-autoneg/" class="post-title-link" itemprop="url">千兆以太网中，1000M与100/10M双工模式协商不一致的问题浅析</a>
+        </h2>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2015-12-09 22:42:07" itemprop="dateCreated datePublished" datetime="2015-12-09T22:42:07+08:00">2015-12-09</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2015-12-23 22:50:56" itemprop="dateModified" datetime="2015-12-23T22:50:56+08:00">2015-12-23</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-folder"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/%E6%8A%80%E6%9C%AF%E5%88%86%E4%BA%AB/" itemprop="url" rel="index"><span itemprop="name">技术分享</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+          <p>一般的千兆以太网中，网口都会具有自协商功能，这种协商一般是由PHY芯片来完成的。不知道大家有没有观察到一个奇怪的现象：当两个千兆电口对接时，其中一端自协商功能关闭，而另外一端的自协商打开。如果自协商关闭的一端指定了千兆速率，那么自协商的一端还是能协商出千兆全双工的模式，同时ethtool查看PHY相关的状态时，显示对端依然开启了自协商：Link partner advertised auto－negotiation为yes；而当自协商关闭的这端指定了100M或者10M的速率，那么自协商的一端只能协商对应速率的半双工模式，ethtool查询到对端没有开启自协商。</p>
+<p>为什么千兆模式下的自协商如此怪异呢？查询相关的资料，可以知道，千兆电口采用1000BaseT协商，虽然关闭了自协商，但此时端口依然处于自协商模式。这是由于千兆的速率过快，必须要进行时钟同步，此时必须存在master和slave之分。怎么区分呢？这就需要通过自协商进行裁决。所以，自协商时千兆电口模式下的必选项。</p>
+
+      
+    </div>
+
+    
+    
+    
+      <footer class="post-footer">
+        <div class="post-eof"></div>
+      </footer>
+  </article>
+  
+  
+  
+
 
   
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><a class="page-number" href="/page/4/">4</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 
@@ -994,7 +974,7 @@
       <div class="site-state-item site-state-posts">
           <a href="/archives/">
         
-          <span class="site-state-item-count">31</span>
+          <span class="site-state-item-count">29</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
